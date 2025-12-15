@@ -11,9 +11,6 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
-// font for ImGui
-ImFont *ImFont_3270;
-
 // type of the enemy
 enum class entity_type { floor, character, bullet };
 
@@ -197,14 +194,12 @@ void draw(sf::RenderWindow *window) {
 }
 
 void imgui_debug_window() {
-    ImGui::PushFont(ImFont_3270);
     ImGui::Begin("debug");
     ImGui::Text("Sample Text");
-    ImGui::Text("Тестовый Текст");
+    ImGui::Text("LEFT MOUSE BUTTON TO SHOOT");
     ImGui::Text("1234567890");
     ImGui::Text("!\"@$;^:&?*()");
     ImGui::End();
-    ImGui::PopFont();
 }
 
 int main() {
@@ -221,10 +216,6 @@ int main() {
         return -1;
     ImGuiIO &io = ImGui::GetIO();
     io.IniFilename = NULL;
-    ImFont_3270 = io.Fonts->AddFontFromFileTTF("../3270NerdFont.ttf", 36, nullptr,
-                                               io.Fonts->GetGlyphRangesCyrillic());
-    if (!ImGui::SFML::UpdateFontTexture())
-        return -1;
     sf::Clock clock;
     sf::Time looptime = sf::seconds(0.1);
 
