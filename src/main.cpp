@@ -1,11 +1,13 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Graphics/RectangleShape.hpp>
+#include <SFML/System/Angle.hpp>
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Window/Mouse.hpp>
 #include <box2d/box2d.h>
 #include <box2d/id.h>
 #include <box2d/math_functions.h>
 #include <box2d/types.h>
+#include <cmath>
 #include <cstddef>
 #include <imgui-SFML.h>
 #include <imgui.h>
@@ -13,9 +15,6 @@
 
 // type of the enemy
 enum class entity_type { floor, character, bullet };
-
-// declaration of entity struct, needed for entity typizator
-struct entity;
 
 // entity typizator
 struct entity_tpz {
@@ -27,6 +26,7 @@ struct entity_tpz {
 // a struct of an entity - a floor, a character or a bullet object
 struct entity : public sf::RectangleShape {
     b2BodyId b2bid; // box2d id
+    int TTL = 3;
     entity_tpz *tpz =
         new entity_tpz(entity_type::character,
                        0); // entity typizator, needed for collision processing (down below)
@@ -88,7 +88,12 @@ struct world_t {
     std::vector<entity> entities;
 } world;
 
+sf::RectangleShape pointer;
+
 void init() {
+    pointer.setSize({0.25,0.05});
+    pointer.setPosition({1,1});
+    pointer.setOrigin({-1,0.025});
     b2WorldDef worldDef = b2DefaultWorldDef();
     worldDef.gravity = {0.0f, -9.8f};
     world.b2wid = b2CreateWorld(&worldDef);
@@ -140,6 +145,7 @@ void proc_contact_events() {
 
     b2ContactEvents contact_events = b2World_GetContactEvents(world.b2wid);
     b2ContactBeginTouchEvent *cebe = contact_events.beginEvents;
+    std::vector<entity_tpz*> bodies_to_destroy;
     for (int i = 0; i < contact_events.beginCount; i++) {
         entity_tpz *etpz_x;
         entity_tpz *etpz_y;
@@ -150,55 +156,73 @@ void proc_contact_events() {
         auto tpz_x = reinterpret_cast<entity_tpz *>(data_x);
         auto tpz_y = reinterpret_cast<entity_tpz *>(data_y);
         if (tpz_x->type == entity_type::bullet) {
-            b2DestroyBody(world.entities[tpz_x->vecpos].b2bid);
-            world.entities.erase(world.entities.begin() + tpz_x->vecpos);
-            brush_entities();
+            world.entities[tpz_x->vecpos].TTL--;
+            if(world.entities[tpz_x->vecpos].TTL == 0) {
+                bodies_to_destroy.push_back(tpz_x);
+            }
         }
         if (tpz_y->type == entity_type::bullet) {
-            b2DestroyBody(world.entities[tpz_y->vecpos].b2bid);
-            world.entities.erase(world.entities.begin() + tpz_y->vecpos);
-            brush_entities();
+            world.entities[tpz_y->vecpos].TTL--;
+            if(world.entities[tpz_y->vecpos].TTL == 0) {
+                bodies_to_destroy.push_back(tpz_y);
+            }
         }
-
-        brush_entities();
     }
+    for(size_t i = 0; i < bodies_to_destroy.size(); i++) {
+                b2DestroyBody(world.entities[bodies_to_destroy[i]->vecpos].b2bid);
+                world.entities.erase(world.entities.begin() + bodies_to_destroy[i]->vecpos);
+                brush_entities();
+    }
+    brush_entities();
 }
 
+
+sf::Vector2f mouse_pos;
 void update(float dt, sf::RenderWindow *wndw) {
     b2World_Step(world.b2wid, dt, 4);
     proc_contact_events();
-
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left, true)) {
-        b2Body_ApplyLinearImpulseToCenter(world.entities[0].b2bid, {-1.5, 0}, true);
-        b2Vec2 bot_pos = b2Body_GetPosition(world.entities[0].b2bid);
-        sf::Vector2i mouse_pos_pix = sf::Mouse::getPosition(*wndw);
-        sf::Vector2i mouse_pos =
-            wndw->mapCoordsToPixel({(float)mouse_pos_pix.x, (float)mouse_pos_pix.y});
-        b2Vec2 init_bullet_pos = {bot_pos.x + 1, bot_pos.y};
-        world.entities.push_back({{0.1, 0.1},
-                                  init_bullet_pos,
+    
+    mouse_pos = wndw->mapPixelToCoords(sf::Mouse::getPosition(*wndw));
+    
+    sf::Vector2f
+        bot_pos = world.entities[0].getPosition(),
+        bullet_vector = {mouse_pos.x - bot_pos.x,mouse_pos.y - bot_pos.y};
+    float rotation = bullet_vector.angle().asRadians();
+    pointer.setRotation(sf::radians(rotation));
+    
+    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left, true)){
+        b2Vec2 bullet_pos = {bot_pos.x + sin(rotation+(float)M_PI*0.5f)*0.5f,-bot_pos.y + cos(rotation+(float)M_PI*0.5f)*0.5f};
+        world.entities.push_back((entity){{0.1, 0.1},
+                                  bullet_pos,
                                   b2MakeRot(0),
                                   entity_type::bullet,
                                   world.b2wid,
                                   world.entities.size(),
-                                  {100, 0}});
+                                  {100*std::cos(rotation), -100*std::sin(rotation)}});
     }
-
+    
     for (size_t i = 0; i < world.entities.size(); i++)
         world.entities[i].sync();
+    pointer.setPosition(world.entities[0].getPosition());   
 }
 
 void draw(sf::RenderWindow *window) {
     for (size_t i = 0; i < world.entities.size(); i++)
         window->draw(world.entities[i]);
+    window->draw(pointer);
 }
 
+ImGuiWindowFlags dwflags = ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove;
+
 void imgui_debug_window() {
-    ImGui::Begin("debug");
+    ImGui::Begin("debug", NULL, dwflags);
     ImGui::Text("Sample Text");
     ImGui::Text("LEFT MOUSE BUTTON TO SHOOT");
     ImGui::Text("1234567890");
     ImGui::Text("!\"@$;^:&?*()");
+    ImGui::Text("latest mouse pos x/y: %.2f/%.2f", mouse_pos.x, mouse_pos.y);
+    ImGui::Text("size of entities vector: %zu", world.entities.size());
+    ImGui::SetWindowPos({0,0});
     ImGui::End();
 }
 
@@ -211,7 +235,7 @@ int main() {
     contxt_sttngs.sRgbCapable = false;
     sf::RenderWindow wndw(sf::VideoMode({1280, 720}), "gaem", sf::Style::Close, sf::State::Windowed,
                           contxt_sttngs);
-    wndw.setFramerateLimit(144);
+    wndw.setFramerateLimit(60);
     if (!ImGui::SFML::Init(wndw))
         return -1;
     ImGuiIO &io = ImGui::GetIO();
